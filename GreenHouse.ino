@@ -1,113 +1,126 @@
-#include <Wire.h>					//Бибилотека для работы с Tiny RTC
-#include <TimeLib.h>				//Бибилотека для работы с Tiny RTC
-#include <DS1307RTC.h>				//Бибилотека для работы с Tiny RTC
-#include <DallasTemperature.h>		//Бибилотека для работы с DS1820
-#include <dhtnew.h>		//Бибилотека для работы с DHT11
+#include <Wire.h>          //Бибилотека для работы с Tiny RTC
+#include <TimeLib.h>        //Бибилотека для работы с Tiny RTC
+#include <DS1307RTC.h>        //Бибилотека для работы с Tiny RTC
+#include <OneWire.h>    //Бибилотека для работы с DS1820
+#include "DHT.h"    //Бибилотека для работы с DHT11
 #include <SoftwareSerial.h>         // Библиотека програмной реализации обмена по UART-протоколу
 
 
 // TODO выставить корректый PIN подключения реле
-#define PIN_VALVE_RELAY 2
+#define PIN_RELAY_VALVE 9
 // Номер пина Arduino с подключенным датчиком
-#define PIN_DS18B20 8
+#define PIN_DS18B20 6
 // Номер пина Arduino с DHT11 
-#define PIN_DHT11 4
+#define DHTPIN 5
+#define DHTTYPE DHT11
 
 // RX, TX GSM
-SoftwareSerial SIM800(3, 2);                               
+SoftwareSerial SIM800(2, 3);                               
 
 //****Переменные для работы с Tiny RTC
-	int hour_now = 0, min_now = 0, sec_now = 0;
+  int hour_now = 0, min_now = 0, sec_now = 0;
 //*****
 
 //******Переменные для работы с DS1820 
-	// Создаем объект OneWire
-	OneWire oneWire(PIN_DS18B20);
-	// Создаем объект DallasTemperature для работы с сенсорами, передавая ему ссылку на объект для работы с 1-Wire.
-	DallasTemperature dallasSensors(&oneWire);
-	// Специальный объект для хранения адреса устройства
-	DeviceAddress sensorAddress;
-	//Значение температуры на DS1820
-	float temp_out_DS1820;
+  // Создаем объект OneWire
+  OneWire DS1820(PIN_DS18B20);
+  //Значение температуры на DS1820
+  float temp_out_DS1820;
 //*****
 
 //*************Настройка DHT11***************
-	DHTNEW dhtSensor(PIN_DHT11);
-	float temp_IN = 0;
-	float humidity_IN = 0;
+  DHT dht(DHTPIN, DHTTYPE);
+  float temp_IN = 0;
+  float humidity_IN = 0;
 
 
 //Таймеры
-	uint32_t timer_1 = 0, timer_2 = 0;
+  uint32_t timer_1 = 0, timer_2 = 0;
 
 //***Переменнные для работы с SIM800
-	String _response = "";    // Переменная для хранения ответа модуля
-	String phones = "+79137857684, +79612183656, +79133731599, +79133886955";   // Белый список телефонов
-	String msgphone;                        // Переменная для хранения номера отправителя
-	String msgbody;                         // Переменная для хранения текста СМС
-	String outSMS;
-	bool hasmsg = false;                                              // Флаг наличия сообщений к удалению
+  String _response = "";    // Переменная для хранения ответа модуля
+  String phones = "+79137857684, +79612183656, +79133731599, +79133886955";   // Белый список телефонов
+  String msgphone;                        // Переменная для хранения номера отправителя
+  String msgbody;                         // Переменная для хранения текста СМС
+  String outSMS;
+  bool hasmsg = false;                                              // Флаг наличия сообщений к удалению
 //****
 
 void(* resetFunc) (void) = 0;      //Функция перезагрузки
 
 //__________________________Функция получения времени от Tiny RTC_____________________________________
 void ReadTime(){
-	 tmElements_t tm;
-	 if (RTC.read(tm)) {
-		hour_now = tm.Hour;
-		min_now = tm.Minute;
-		sec_now = tm.Second;
-	 } else {
-		if (RTC.chipPresent()) {
-		  Serial.println("The DS1307 is stopped.  Please run the SetTime");
-		  Serial.println();
-		} else {
-		  Serial.println("DS1307 read error!  Please check the circuitry.");
-		  Serial.println();
-		}
-		Serial.print(hour_now);
-		Serial.print(".");
-		Serial.print(min_now);
-		Serial.print(".");
-		Serial.print(sec_now);
-	}
+  Serial.println("ReadTime()");
+   tmElements_t tm;
+   if (RTC.read(tm)) {
+    hour_now = tm.Hour;
+    min_now = tm.Minute;
+    sec_now = tm.Second;
+   } else {
+    if (RTC.chipPresent()) {
+      Serial.println("The DS1307 is stopped.  Please run the SetTime");
+      Serial.println();
+    } else {
+      Serial.println("DS1307 read error!  Please check the circuitry.");
+      Serial.println();
+    }
+  }
+    Serial.print(hour_now);
+    Serial.print(".");
+    Serial.print(min_now);
+    Serial.print(".");
+    Serial.print(sec_now);
 }
 //___________________________________________________________________________________________________
 
 //_____________________________Добавление нуля ко времени__________________________________________
 void Print2digits (int number) {
-	if (number >= 0 && number < 10) {
-		Serial.write('0');
-	}
-	Serial.print(number);
+  if (number >= 0 && number < 10) {
+    Serial.write('0');
+  }
+  Serial.print(number);
 }
 //___________________________________________________________________________________________________
 
 
-// ____________________Вспомогательная функция для отображения адреса датчика ds18b20__________________
-void PrintAdress (DeviceAddress deviceAddress){
-	for (uint8_t i = 0; i < 8; i++)
-	{
-		if (deviceAddress[i] < 16) Serial.print("0");
-		Serial.print(deviceAddress[i], HEX);
-	}
-}
-//____________________________________________________________________________________________________
-
 //______________________Получение температуры на улице________________________________
-void GetTempDS1820(DeviceAddress deviceAddress) {
-	temp_out_DS1820 = dallasSensors.getTempC(deviceAddress);
-	Serial.print("Temp C: ");
-	Serial.println(temp_out_DS1820);
+void GetTempDS1820() {
+// Определяем температуру от датчика DS18b20
+  byte data[2]; // Место для значения температуры
+  
+  DS1820.reset(); // Начинаем взаимодействие со сброса всех предыдущих команд и параметров
+  DS1820.write(0xCC); // Даем датчику DS18b20 команду пропустить поиск по адресу. В нашем случае только одно устрйоство 
+  DS1820.write(0x44); // Даем датчику DS18b20 команду измерить температуру. Само значение температуры мы еще не получаем - датчик его положит во внутреннюю память
+  
+  delay(1000); // Микросхема измеряет температуру, а мы ждем.  
+  
+  DS1820.reset(); // Теперь готовимся получить значение измеренной температуры
+  DS1820.write(0xCC); 
+  DS1820.write(0xBE); // Просим передать нам значение регистров со значением температуры
+  // Получаем и считываем ответ
+  data[0] = DS1820.read(); // Читаем младший байт значения температуры
+  data[1] = DS1820.read(); // А теперь старший
+  // Формируем итоговое значение: 
+  //    - сперва "склеиваем" значение, 
+  //    - затем умножаем его на коэффициент, соответсвующий разрешающей способности (для 12 бит по умолчанию - это 0,0625)
+  temp_out_DS1820 =  ((data[1] << 8) | data[0]) * 0.0625;
+  
+  // Выводим полученное значение температуры в монитор порта
+  Serial.print("Temp OUT: ");
+  Serial.println(temp_out_DS1820);
 }
 //___________________________________________________________________________________
 
 //*************************Получение температуры и влажности с DHT11***************************
 void GetTempIN()
 {
-  temp_IN = dhtSensor.getTemperature();
-  humidity_IN = dhtSensor.getHumidity();
+  Serial.println("GetTempIN()>>>>>>>>>>>>>>");
+  temp_IN = dht.readTemperature();
+  humidity_IN = dht.readHumidity();
+  Serial.print("TempIN: ");Serial.println(temp_IN);
+  Serial.print("HumidityIN: ");Serial.println(humidity_IN);
+  
+  
  }
 //-----------------------------------------------------------------------------------
 
@@ -228,7 +241,7 @@ String parseSMS(String msg) {
 //****************************отправка SMS**************************************
 void sendSMS(String phone, String message)
 {
-  Serial.println("SendSMS>>>>>");	
+  Serial.println("SendSMS>>>>>"); 
   SIM800.begin(9600);
   SIM800.listen();
   delay(100);
@@ -245,41 +258,48 @@ void sendSMS(String phone, String message)
 void SMSSelect(String sms){
   //Serial.println("SMSSelect!"); 
  
-	//+++++++++Перезагрузка+++++++++++++
-	if (sms == "0" || sms == "r" || sms == "R")
-	{
-		Serial.println("Reboot");
-		String sSMS5 = ("Reboot!");
-		sendSMS(msgphone, sSMS5);
-		delay(15000);
-		digitalWrite(6, LOW);
-		digitalWrite(7, LOW);
-		resetFunc();
-	}
+  //+++++++++Перезагрузка+++++++++++++
+  if (sms == "0" || sms == "r" || sms == "R")
+  {
+    Serial.println("Reboot");
+    String sSMS5 = ("Reboot!");
+    sendSMS(msgphone, sSMS5);
+    delay(15000);
+    digitalWrite(6, LOW);
+    digitalWrite(7, LOW);
+    resetFunc();
+  }
 
-	//+++++++++Полив+++++++++++++
-	if (sms == "1" || sms == "p" || sms == "P")
-	{
-		outSMS = "Запуск полива";
-		sendSMS(msgphone, outSMS);
-		Serial.println("Запуск полива");
-	}
-	//+++++++++Проветривание+++++++++++++
-	if (sms == "O" || sms == "o")
-	{
-		Serial.println("Открытие окна");
+  //+++++++++Полив+++++++++++++
+  if (sms == "1" || sms == "p" || sms == "P")
+  {
+    outSMS = "Запуск полива";
+    sendSMS(msgphone, outSMS);
+    Serial.println("Запуск полива");
+  }
+  //+++++++++Проветривание+++++++++++++
+  if (sms == "O" || sms == "o")
+  {
+    Serial.println("Открытие окна");
 
-	}
-	//+++++++++Температура внутри+++++++++++++
-	if (sms == "Ti" || sms == "ti" || sms == "TI")
-	{
-		Serial.println("Температура и влажность внутри");
-	}
-	//+++++++++Температура снаружи++++++++++++
-	if (sms == "To" || sms == "to" || sms == "TO")
-	{
-		Serial.print("Температура снаружи: "); Serial.println(temp_out_DS1820);
-	}
+
+  }
+  //+++++++++Температура внутри+++++++++++++
+  if (sms == "Ti" || sms == "ti" || sms == "TI")
+  {
+    outSMS = ("Temp: " + String(temp_IN) + " Humidity: " + String(humidity_IN));
+    Serial.print("Температура и влажность внутри");
+    Serial.println(outSMS);
+    sendSMS(msgphone, outSMS);
+  }
+  //+++++++++Температура снаружи++++++++++++
+  if (sms == "To" || sms == "to" || sms == "TO")
+  {
+    outSMS = ("Temp out: " + String(temp_out_DS1820));
+    Serial.print("Температура снаружи: "); Serial.println(temp_out_DS1820);
+    Serial.println(outSMS);
+    sendSMS(msgphone, outSMS);
+  }
   
 }
 //-----------------------------------------------------------------------------------
@@ -297,33 +317,35 @@ void SIMinit()
 //-----------------------------------------------------------------------------------
 
 
+//*************************Включение полива***************************
+
+
 void setup() {
-	//-------------------Выходы сброса модулей---------------------
+  //-------------------Выходы сброса модулей---------------------
   pinMode(6, OUTPUT);                   //PIN клапана
   pinMode(7, OUTPUT);                   //Сброс SIM800
   digitalWrite(6, HIGH);
   digitalWrite(7, HIGH);
   delay(50);
 
-  dhtSensor.setType(11);
-
-	Serial.begin(9600);
-	while (!Serial) ; // wait for serial
-	delay(200);
-	SIMinit();
+  Serial.begin(9600);
+  delay(200);
+  dht.begin();
+  SIMinit();
 }
 
 void loop() {
 
-	if ((millis() - timer_1)>1000){
-		timer_1 = millis();
-		GetTempDS1820(sensorAddress);
-		ReadTime();
-	}
-	if ((millis() - timer_2)>60000){
-			timer_2 = millis();
-			CheckSMS();
-	}
+  if ((millis() - timer_1)>1000){
+    timer_1 = millis();
+   GetTempDS1820();
+    GetTempIN();
+    ReadTime();
+  }
+ if ((millis() - timer_2)>60000){
+     timer_2 = millis();
+     CheckSMS();
+ }
 
   
 }
