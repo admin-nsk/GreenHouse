@@ -2,32 +2,43 @@
 #include <TimeLib.h>				//Бибилотека для работы с Tiny RTC
 #include <DS1307RTC.h>				//Бибилотека для работы с Tiny RTC
 #include <DallasTemperature.h>		//Бибилотека для работы с DS1820
+#include <dhtnew.h>		//Бибилотека для работы с DHT11
+#include <SoftwareSerial.h>         // Библиотека програмной реализации обмена по UART-протоколу
+
 
 // TODO выставить корректый PIN подключения реле
-#define PIN_VALVE_RELAY = 2;
+#define PIN_VALVE_RELAY 2
 // Номер пина Arduino с подключенным датчиком
-#define PIN_DS18B20 8;
+#define PIN_DS18B20 8
+// Номер пина Arduino с DHT11 
+#define PIN_DHT11 4
 
 // RX, TX GSM
 SoftwareSerial SIM800(3, 2);                               
 
 //****Переменные для работы с Tiny RTC
-	int hour = 0, min = 0, sec = 0;
+	int hour_now = 0, min_now = 0, sec_now = 0;
 //*****
 
 //******Переменные для работы с DS1820 
 	// Создаем объект OneWire
 	OneWire oneWire(PIN_DS18B20);
 	// Создаем объект DallasTemperature для работы с сенсорами, передавая ему ссылку на объект для работы с 1-Wire.
-	DallasTemperature dallasSensors(&amp;oneWire);
+	DallasTemperature dallasSensors(&oneWire);
 	// Специальный объект для хранения адреса устройства
 	DeviceAddress sensorAddress;
 	//Значение температуры на DS1820
 	float temp_out_DS1820;
 //*****
 
+//*************Настройка DHT11***************
+	DHTNEW dhtSensor(PIN_DHT11);
+	float temp_IN = 0;
+	float humidity_IN = 0;
+
+
 //Таймеры
-	uin32_t timer_1 = 0, timer_2 = 0;
+	uint32_t timer_1 = 0, timer_2 = 0;
 
 //***Переменнные для работы с SIM800
 	String _response = "";    // Переменная для хранения ответа модуля
@@ -44,9 +55,9 @@ void(* resetFunc) (void) = 0;      //Функция перезагрузки
 void ReadTime(){
 	 tmElements_t tm;
 	 if (RTC.read(tm)) {
-		hour = tm.Hour;
-		min = tm.Minute;
-		sec = tm.Second;
+		hour_now = tm.Hour;
+		min_now = tm.Minute;
+		sec_now = tm.Second;
 	 } else {
 		if (RTC.chipPresent()) {
 		  Serial.println("The DS1307 is stopped.  Please run the SetTime");
@@ -55,16 +66,17 @@ void ReadTime(){
 		  Serial.println("DS1307 read error!  Please check the circuitry.");
 		  Serial.println();
 		}
-		Serial.print(hour);
+		Serial.print(hour_now);
 		Serial.print(".");
-		Serial.print(min);
+		Serial.print(min_now);
 		Serial.print(".");
-		Serial.print(sec);
+		Serial.print(sec_now);
+	}
 }
 //___________________________________________________________________________________________________
 
 //_____________________________Добавление нуля ко времени__________________________________________
-void Print2digits(int number) {
+void Print2digits (int number) {
 	if (number >= 0 && number < 10) {
 		Serial.write('0');
 	}
@@ -84,12 +96,20 @@ void PrintAdress (DeviceAddress deviceAddress){
 //____________________________________________________________________________________________________
 
 //______________________Получение температуры на улице________________________________
-void GetTempDS1820() {
+void GetTempDS1820(DeviceAddress deviceAddress) {
 	temp_out_DS1820 = dallasSensors.getTempC(deviceAddress);
 	Serial.print("Temp C: ");
 	Serial.println(temp_out_DS1820);
 }
 //___________________________________________________________________________________
+
+//*************************Получение температуры и влажности с DHT11***************************
+void GetTempIN()
+{
+  temp_IN = dhtSensor.getTemperature();
+  humidity_IN = dhtSensor.getHumidity();
+ }
+//-----------------------------------------------------------------------------------
 
 //***************************Отправка команды модему******************************
 String sendATCommand(String cmd, bool waiting) {
@@ -240,7 +260,7 @@ void SMSSelect(String sms){
 	//+++++++++Полив+++++++++++++
 	if (sms == "1" || sms == "p" || sms == "P")
 	{
-		outSMS = ScaleSMS();
+		outSMS = "Запуск полива";
 		sendSMS(msgphone, outSMS);
 		Serial.println("Запуск полива");
 	}
@@ -258,7 +278,7 @@ void SMSSelect(String sms){
 	//+++++++++Температура снаружи++++++++++++
 	if (sms == "To" || sms == "to" || sms == "TO")
 	{
-		Serial.println("Температура снаружи: " + temp_out_DS1820);
+		Serial.print("Температура снаружи: "); Serial.println(temp_out_DS1820);
 	}
   
 }
@@ -276,6 +296,7 @@ void SIMinit()
 }
 //-----------------------------------------------------------------------------------
 
+
 void setup() {
 	//-------------------Выходы сброса модулей---------------------
   pinMode(6, OUTPUT);                   //PIN клапана
@@ -284,26 +305,25 @@ void setup() {
   digitalWrite(7, HIGH);
   delay(50);
 
+  dhtSensor.setType(11);
+
 	Serial.begin(9600);
 	while (!Serial) ; // wait for serial
 	delay(200);
-	SIMInit();
+	SIMinit();
 }
 
 void loop() {
 
-	if ((millis - timer_1)>1000){
-		timer_1 = millis;
-		GetTempDS1820();
+	if ((millis() - timer_1)>1000){
+		timer_1 = millis();
+		GetTempDS1820(sensorAddress);
 		ReadTime();
 	}
-	if ((millis - timer_2)>60000){
-			timer_2 = millis;
+	if ((millis() - timer_2)>60000){
+			timer_2 = millis();
 			CheckSMS();
-		}
+	}
 
   
 }
-
-
-
