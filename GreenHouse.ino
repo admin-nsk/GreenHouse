@@ -5,9 +5,6 @@
 #include "DHT.h"    //Бибилотека для работы с DHT11
 #include <SoftwareSerial.h>         // Библиотека програмной реализации обмена по UART-протоколу
 
-
-// TODO выставить корректый PIN подключения реле
-#define PIN_RELAY_VALVE 9
 // Номер пина Arduino с подключенным датчиком
 #define PIN_DS18B20 6
 // Номер пина Arduino с DHT11 
@@ -18,7 +15,7 @@
 SoftwareSerial SIM800(2, 3);                               
 
 //****Переменные для работы с Tiny RTC
-  int hour_now = 0, min_now = 0, sec_now = 0;
+  int wday_now = 0, month_now = 0, day_now = 0, hour_now = 0, min_now = 0, sec_now = 0;
 //*****
 
 //******Переменные для работы с DS1820 
@@ -46,16 +43,25 @@ SoftwareSerial SIM800(2, 3);
   bool hasmsg = false;                                              // Флаг наличия сообщений к удалению
 //****
 
+//****************Данные для полива*********
+  int mas_pins_valve[5] = {0, 7, 8, 9, 10};
+  int watering_timer = 10;
+
+
+
 void(* resetFunc) (void) = 0;      //Функция перезагрузки
 
 //__________________________Функция получения времени от Tiny RTC_____________________________________
 void ReadTime(){
-  Serial.println("ReadTime()");
+  Serial.println("ReadTime()>>>>>>>>>>>>");
    tmElements_t tm;
    if (RTC.read(tm)) {
     hour_now = tm.Hour;
     min_now = tm.Minute;
     sec_now = tm.Second;
+    day_now = tm.Day;
+    month_now = tm.Month;
+    wday_now = tm.Wday;
    } else {
     if (RTC.chipPresent()) {
       Serial.println("The DS1307 is stopped.  Please run the SetTime");
@@ -69,16 +75,12 @@ void ReadTime(){
     Serial.print(".");
     Serial.print(min_now);
     Serial.print(".");
-    Serial.print(sec_now);
-}
-//___________________________________________________________________________________________________
-
-//_____________________________Добавление нуля ко времени__________________________________________
-void Print2digits (int number) {
-  if (number >= 0 && number < 10) {
-    Serial.write('0');
-  }
-  Serial.print(number);
+    Serial.println(sec_now);
+	Serial.print("wd: ");
+	Serial.println(wday_now);
+	Serial.print(day_now);
+	Serial.print(".");
+	Serial.println(month_now);
 }
 //___________________________________________________________________________________________________
 
@@ -271,18 +273,24 @@ void SMSSelect(String sms){
   }
 
   //+++++++++Полив+++++++++++++
-  if (sms == "1" || sms == "p" || sms == "P")
+  if (sms == "1" || sms == "p1" || sms == "P1")
   {
-    outSMS = "Запуск полива";
+    outSMS = "Запуск полива_1";
     sendSMS(msgphone, outSMS);
-    Serial.println("Запуск полива");
+    Serial.println("Запуск полива_1");
+    Setup_Watering(1, watering_timer);
+  }
+  if (sms == "2" || sms == "p2" || sms == "P2")
+  {
+    outSMS = "Запуск полива_2";
+    sendSMS(msgphone, outSMS);
+    Serial.println("Запуск полива_2");
+    Setup_Watering(2, watering_timer);
   }
   //+++++++++Проветривание+++++++++++++
   if (sms == "O" || sms == "o")
   {
     Serial.println("Открытие окна");
-
-
   }
   //+++++++++Температура внутри+++++++++++++
   if (sms == "Ti" || sms == "ti" || sms == "TI")
@@ -318,14 +326,24 @@ void SIMinit()
 
 
 //*************************Включение полива***************************
-
+void Setup_Watering(int num_valve, int timer){
+	int start = min_now;
+	Serial.print("Num pin valve: ");Serial.println(mas_pins_valve[num_valve]);
+	digitalWrite(mas_pins_valve[num_valve], HIGH);
+	while((min_now - start) < timer){
+		delay(60000);
+		ReadTime();
+	}
+	digitalWrite(mas_pins_valve[num_valve], LOW);
+}
 
 void setup() {
   //-------------------Выходы сброса модулей---------------------
-  pinMode(6, OUTPUT);                   //PIN клапана
-  pinMode(7, OUTPUT);                   //Сброс SIM800
-  digitalWrite(6, HIGH);
-  digitalWrite(7, HIGH);
+  pinMode(mas_pins_valve[1], OUTPUT);                   //PIN реле 1>клапана1
+  pinMode(mas_pins_valve[2], OUTPUT);                   //PIN реле 2>клапана2
+  pinMode(mas_pins_valve[3], OUTPUT);                   //PIN реле 3
+  pinMode(mas_pins_valve[4], OUTPUT);                   //PIN реле 4
+  
   delay(50);
 
   Serial.begin(9600);
@@ -336,15 +354,21 @@ void setup() {
 
 void loop() {
 
-  if ((millis() - timer_1)>1000){
+  if ((millis() - timer_1)>10000){
     timer_1 = millis();
-   GetTempDS1820();
-    GetTempIN();
     ReadTime();
   }
  if ((millis() - timer_2)>60000){
      timer_2 = millis();
+     GetTempDS1820();
+     GetTempIN();
      CheckSMS();
+ }
+ if (hour_now == 20 && min_now == 00){
+     Setup_Watering(1, watering_timer);
+ }
+ if (hour_now == 20 && min_now == 00){
+     Setup_Watering(1, watering_timer);
  }
 
   
